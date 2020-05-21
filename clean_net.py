@@ -107,7 +107,7 @@ def get_north_boundary_edges():
     east_coord = east_node.getCoord()
     
     north_boundary_edges = [edge for edge in edges if 'bloor street' in edge.getName().lower()]
-    north_boundary_edges = prune_edges(up_boundary_edges, 0, west_coord, east_coord, direction=-1)
+    north_boundary_edges = prune_edges(north_boundary_edges, 0, west_coord, east_coord, direction=-1)
 
     return north_boundary_edges
 
@@ -124,7 +124,7 @@ def get_west_boundary_edges():
     south_coord = south_node.getCoord()
 
     west_boundary_edges = [edge for edge in edges if 'bathurst' in edge.getName().lower()]
-    west_boundary_edges = prune_edges(left_boundary_edges, 1, south_coord, north_coord, direction=-1)
+    west_boundary_edges = prune_edges(west_boundary_edges, 1, south_coord, north_coord, direction=-1)
 
     return west_boundary_edges
 

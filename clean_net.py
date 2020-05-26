@@ -221,11 +221,11 @@ def get_terminal_nodes(internal_nodes, external_nodes):
                 break 
 
 
-    prune_nodes = external_nodes.difference(terminal_nodes)
+    pruned_nodes = external_nodes.difference(terminal_nodes)
 
-    print('Terminal : {} | Pruned: {}'.format(len(terminal_nodes), len(prune_edges)))
+    print('Terminal : {} | Pruned: {}'.format(len(terminal_nodes), len(pruned_nodes)))
         
-    return terminal_nodes, prune_nodes
+    return terminal_nodes, pruned_nodes
 
 
 
@@ -239,3 +239,4 @@ plot_net.plot_nodes(external_nodes)
 plot_net.plot_nodes(terminal_nodes)
 plt.show()
 
+# print(sumolib.geomhelper.positionAtShapeOffset(net.getLane('4652071#4_0').getShape(), 67.82))

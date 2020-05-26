@@ -31,3 +31,4 @@ def plot_nodes(nodes):
     coords = np.array(coords)
    
     plt.scatter(coords[:,0], coords[:,1], s=8)
+

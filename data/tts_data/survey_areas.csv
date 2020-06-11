@@ -1,0 +1,26 @@
+region,start_num,end_num
+toronto,1,625
+durham,1001,1334
+york,2001,2877
+peel,3001,3879
+halton,4001,4197
+hamilton,5001,5253
+niagara,6001,6366
+waterloo,7001,7576
+brantford,8901,8949
+brant,8950,8960
+guelph,8001,8207
+wellington,8301,8380
+orangeville,8401,8405
+dufferin,8411,8417
+orillia,8681,8685
+simcoe,8551,8667
+barrie,8501,8532
+kawartha lakes,8701,8717
+peterborough county,8851,8855
+city of peterborough,8801,8825
+northumberland,9001,9016
+external,9017,9068
+external undefined,9998,9998
+no usual location,8888,8888
+unknown,9999,9999

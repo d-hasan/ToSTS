@@ -1,5 +1,7 @@
 import networkx as nx 
 
+from region_graph import RegionGraph
+
 class TripPlanner():
     
     def __init__(self, sim_net, tts_trips, traffic_regions):
@@ -39,21 +41,21 @@ class TripPlanner():
         trip_type = 0b00
         origin = od_data[0]
         destination = od_data[1]
-        if origin in taz_aoi:
+        if origin in self.aoi_taz:
             trip_type = trip_type | 0b10
-        if destination in taz_aoi:
+        if destination in self.aoi_taz:
             trip_type = trip_type | 0b01
         return trip_type
     
     
     def trip_ext_to_ext(self, trip):
-        pass
+        return None
     
     def trip_ext_to_int(self, trip):
-        pass
+        return None 
     
     def trip_int_to_ext(self, trip):
-        pass
+        return None 
     
     def trip_int_to_int(self, trip):
-        pass
+        return None 

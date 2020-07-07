@@ -1,5 +1,7 @@
 import os
 import sys
+import configparser
+import subprocess
 import pdb
 
 import matplotlib.pyplot as plt 
@@ -7,6 +9,7 @@ from matplotlib.lines import Line2D
 import numpy as np
 import shapely
 import pyproj
+from shapely.geometry.linestring import LineString, Point
 
 
 import plot_net
@@ -24,8 +27,12 @@ import sumolib
 
 class SimulationNet():
 
-    def __init__(self, net_path):
-        self.net_path = net_path
+    def __init__(self, config_path):
+        self.config = configparser.ConfigParser()
+        self.config.read(config_path)
+
+
+        self.net_path = self.config['paths']['net_path']
         self.net = sumolib.net.readNet(self.net_path)
 
         proj_str = self.net._location['projParameter']
@@ -35,25 +42,35 @@ class SimulationNet():
         self.edges = self.net.getEdges()
         self.nodes = self.net.getNodes()
 
+        self.card_directions = ['north', 'west', 'south', 'east']
         self.coord_indices = {'north': 0, 'south': 0, 'east': 1, 'west': 1}
         self.directions = {'north': -1, 'south': 1, 'east': 1, 'west': -1}
 
-        self.north_boundary_edges = self.get_north_boundary_edges()
-        self.west_boundary_edges = self.get_west_boundary_edges()
-        self.east_boundary_edges = self.get_east_boundary_edges()
-        self.south_boundary_edges = self.get_south_boundary_edges()
-
-        self.artificial_edge = sumolib.net.edge.Edge('fake_edge', self.net.getNode('699540'), self.net.getNode('gneJ3'), 0, None, 'fake')
-
-        self.boundary_edges = self.north_boundary_edges + self.west_boundary_edges + self.south_boundary_edges + self.east_boundary_edges + [self.artificial_edge]
+        all_boundary_edges = [self.get_boundary_edges(card_direction) for card_direction in self.card_directions]
+        self.artificial_edges = self.get_artificial_edges()
+        
+        insertion_count = 0
+        appended_boundary_edges = []
+        for i, edges in enumerate(all_boundary_edges):
+            appended_boundary_edges += edges 
+            if self.artificial_edges[insertion_count][1] == i + 1:
+                appended_boundary_edges += [self.artificial_edges[insertion_count][0]]
+                insertion_count += 1
+        
+        self.boundary_edges = appended_boundary_edges
         
         self.boundary_polygon = self.create_polygon()
 
         self.internal_nodes, self.external_nodes = self.get_internal_nodes()
         self.terminal_nodes, self.pruned_nodes = self.get_terminal_nodes()
+        self.outflow_nodes, self.outflow_nodes_major = self.get_outflow_nodes()
+        self.inflow_nodes, self.inflow_nodes_major = self.get_inflow_nodes()
 
+        self.edges_to_keep = self.get_edges_to_keep()
+        self.save_edges_to_keep()
+        self.prune_network()
 
-
+        
     def create_polygon(self):
         polygon_vertices = [edge.getFromNode().getCoord() for edge in self.boundary_edges]
         boundary_polygon = shapely.geometry.Polygon(polygon_vertices)
@@ -63,16 +80,21 @@ class SimulationNet():
     def prune_edges(self, edges, coord_index, lower_coord=None, upper_coord=None, direction=1):
         ''' Removes edges that have coordinates outside a defined lower and upper bound, in the prescribed direction.
 
-            edges (list): list of SUMO Edge objects pertaining to a side of the polygon boundary.
-            coord_index (int): index of coordinate to use, 0: x-coord | 1:y-coord
-            lower_coord (float): coordinate lower bound, optional if the road in question terminates at the lower coord.
-            upper_coord (float): coordinate upper bound, optional if the road in question terminates at the upper coord.
-            direction (int):  the directioon to consider the from/to of an edge, 1 denotes from < to and -1 denotes to < from. 
-                            Used to enforce a counter-clockwise orientation to the polygon edges along the boundary.
+            Parameters:
+                edges (list): list of SUMO Edge objects pertaining to a side of the polygon boundary.
+                coord_index (int): index of coordinate to use, 0: x-coord | 1:y-coord
+                lower_coord (float): coordinate lower bound, optional if the road in question terminates at the lower coord.
+                upper_coord (float): coordinate upper bound, optional if the road in question terminates at the upper coord.
+                direction (int):  the directioon to consider the from/to of an edge, 1 denotes from < to and -1 denotes to < from. 
+                                Used to enforce a counter-clockwise orientation to the polygon edges along the boundary.
 
+            Returns:
+                pruned_edges (set): set of edges not to be included in final SUMO network.
         '''
+        
         pruned_edges = []
         for edge in edges:
+            
             from_coord = edge.getFromNode().getCoord()
             to_coord = edge.getToNode().getCoord()
             add_edge = False 
@@ -100,125 +122,63 @@ class SimulationNet():
             
         return pruned_edges
     
-
+    # clarify that this only sorts them for one side of boundary
     def sort_edges_for_polygon(self, edges, coord_index, direction):
         from_coords = [edge.getFromNode().getCoord()[coord_index] * direction for edge in edges]
         zipped_lists = zip(from_coords, edges)
         sorted_pairs = sorted(zipped_lists)
 
         tuples = zip(*sorted_pairs)
-        from_coords, edges = [list(tuple) for tuple in tuples]
+        try:
+            from_coords, edges = [list(tuple) for tuple in tuples]
+        except:
+            pdb.set_trace()
 
         return edges 
 
 
-    def get_south_boundary_edges(self):
-        ''' Returns the edges for the southern boundary.
-        '''
-        coord_index = self.coord_indices['south']
-        direction = self.directions['south']
+    def get_artificial_edges(self):
+        edges = filter(None, [edge.strip().split(', ') for edge in self.config['artificial_edges']['edges'].strip().splitlines()])
+        edges = list(edges)
 
-        # Intersectoin of bathurst and queens quay is the bottom-left polygon bound
-        west_qq_node = self.net.getNode('cluster_1895192313_3466639218_5215359975_6247479486_6247479487_6247479489')
-        west_coord = west_qq_node.getCoord()
-
-        qq_edges = [edge for edge in self.edges if 'queens quay' in edge.getName().lower()]
-        qq_edges = self.prune_edges(qq_edges, coord_index, west_coord, direction=direction)
-
-        # Need the intersection of parliament with queens quay and lakeshore respectively
-        south_parl_node = self.net.getNode('145493534')
-        south_coord = south_parl_node.getCoord()
-        north_parl_node = self.net.getNode('cluster_21090716_21099033')
-        north_coord = north_parl_node.getCoord()
-
-        parl_edges = [edge for edge in self.edges if 'parliament' in edge.getName().lower()]
-        parl_edges = self.prune_edges(parl_edges, coord_index, south_coord, north_coord, direction=direction)
+        artificial_edges = []
+        for i, edge in enumerate(edges):
+            artificial_edge = sumolib.net.edge.Edge(
+                'fake_edge_{}'.format(i), 
+                self.net.getNode(edge[0]),
+                self.net.getNode(edge[1]),
+                0, None, 'fake'
+                )
+            artificial_edges.append([artificial_edge, int(edge[-1])])
         
-        # Lake shore between parliament and don roadway
-        west_lake_node = self.net.getNode('cluster_21090716_21099033')
-        west_coord = west_lake_node.getCoord()
-        east_lake_node = self.net.getNode('cluster_404524713_404524716')
-        east_coord = east_lake_node.getCoord()
-
-        lake_edges = [edge for edge in self.edges if 'lake shore' in edge.getName().lower()]
-        lake_edges = self.prune_edges(lake_edges, coord_index, west_coord, east_coord, direction=direction)
-
-        south_boundary_edges = qq_edges + parl_edges + lake_edges
-        return south_boundary_edges
+        return artificial_edges
 
 
-    def get_north_boundary_edges(self):
-        ''' Returns the edges for the northern boundary.
+    def get_boundary_edges(self, card_direction):
+        ''' Returns the edges for a given direction's boundary.
         '''
-        coord_index = self.coord_indices['north']
-        direction = self.directions['north']
+        coord_index = self.coord_indices[card_direction]
+        direction = self.directions[card_direction]
 
-        # Intersection of bloor and bathurst
-        west_node = self.net.getNode('21631714')
-        west_coord = west_node.getCoord()
+        streets = list(filter(None, [street for street in self.config[card_direction]['streets'].strip().splitlines()]))
+        nodes = list(filter(None, [node for node in self.config[card_direction]['nodes'].strip().splitlines()]))
 
-        # Artificial node where DVP and Bloor pass each other
-        east_node = self.net.getNode('gneJ3')
-        east_coord = east_node.getCoord()
+        all_boundary_edges = []
+        for i, street in enumerate(streets):
+            start_node = self.net.getNode(nodes[i])
+            start_coord = start_node.getCoord()
+
+            end_node = self.net.getNode(nodes[i+1])
+            end_coord = end_node.getCoord()
         
-        north_boundary_edges = [edge for edge in self.edges if 'bloor street' in edge.getName().lower()]
-        north_boundary_edges = self.prune_edges(north_boundary_edges, coord_index, west_coord, east_coord, direction=direction)
+            boundary_edges = [edge for edge in self.edges if street in edge.getName().lower()]
+            boundary_edges = self.prune_edges(boundary_edges, coord_index, start_coord, end_coord, direction=direction)
+            all_boundary_edges += boundary_edges
 
-        return north_boundary_edges
+        return all_boundary_edges
 
-
-    def get_west_boundary_edges(self):
-        ''' Returns the edges for the western boundary.
-        '''
-        coord_index = self.coord_indices['west']
-        direction = self.directions['west']
-
-        # Intersection of bloor and bathurst
-        north_node = self.net.getNode('21631714')
-        north_coord = north_node.getCoord()
-
-        # Intersection of queens quay and bathurst
-        south_node = self.net.getNode('cluster_1895192313_3466639218_5215359975_6247479486_6247479487_6247479489')
-        south_coord = south_node.getCoord()
-
-        west_boundary_edges = [edge for edge in self.edges if 'bathurst' in edge.getName().lower()]
-        west_boundary_edges = self.prune_edges(west_boundary_edges, coord_index, south_coord, north_coord, direction=direction)
-
-        return west_boundary_edges
-
-
-    def get_east_boundary_edges(self):
-        ''' Returns the edges for the eastern boundary.
-        '''
-        coord_index = self.coord_indices['east']
-        direction = self.directions['east']
-
-        # Aritificial bloor and don valley "intersection"
-        north_node = self.net.getNode('gneJ3')
-        north_coord = north_node.getCoord()
-
-        # Don Valley and Don Roadway Intersection
-        south_node = self.net.getNode('2258710645')
-        south_coord = south_node.getCoord()
-
-        dvp_edges = [edge for edge in self.edges if 'don valley' in edge.getName().lower()]
-        dvp_edges = self.prune_edges(dvp_edges, coord_index, south_coord, north_coord, direction=direction)
-
-        # Don Valley and Don Roadway Intersection
-        north_node = self.net.getNode('2260363024')
-        north_coord = north_node.getCoord()
-
-        # Don Roadway and Lakeshore
-        south_node = self.net.getNode('cluster_404524713_404524716')
-        south_coord = south_node.getCoord()
-
-        don_road_edges = [edge for edge in self.edges if 'don roadway' in edge.getName().lower()]
-        don_road_edges = self.prune_edges(don_road_edges, coord_index, south_coord, north_coord, direction=direction)
-
-        east_boundary_edges = don_road_edges + dvp_edges 
-        return east_boundary_edges
-
-
+     
+    # change implementatin to use shapely functions
     def get_internal_nodes(self):
         nodes = self.net.getNodes()
 
@@ -275,7 +235,76 @@ class SimulationNet():
 
         print('Terminal : {} | Pruned: {}'.format(len(terminal_nodes), len(pruned_nodes)))
             
-        return terminal_nodes, pruned_nodes
+        return terminal_nodes, pruned_nodes\
+
+
+    def get_outflow_nodes(self):
+        outflow_nodes = {}
+        outflow_nodes_major = {}
+
+        for node in self.terminal_nodes:
+            incoming_edges = node.getIncoming()
+            outflow_edges = [edge for edge in incoming_edges if edge.getFromNode() in self.internal_nodes]
+
+            if len(outflow_edges) > 0:
+                outflow_edge_capacity = sum([edge.getLaneNumber() * edge.getSpeed() for edge in outflow_edges])
+                outflow_nodes[node] = outflow_edge_capacity
+                if any([edge.getLaneNumber() > 1 for edge in outflow_edges]):
+                    outflow_nodes_major[node] = outflow_edge_capacity
+        
+        return outflow_nodes, outflow_nodes_major
+
+    
+    def get_inflow_nodes(self):
+        inflow_nodes = {}
+        inflow_nodes_major = {}
+
+        for node in self.terminal_nodes:
+            outgoing_edges = node.getOutgoing()
+            inflow_edges = [edge for edge in outgoing_edges if edge.getToNode() in self.internal_nodes]
+
+            if len(inflow_edges) > 0:
+                inflow_edge_capacity = sum([edge.getLaneNumber() * edge.getSpeed() for edge in inflow_edges])
+                inflow_nodes[node] = inflow_edge_capacity
+                if any([edge.getLaneNumber() > 1 for edge in inflow_edges]):
+                    inflow_nodes_major[node] = inflow_edge_capacity
+
+        return inflow_nodes, inflow_nodes_major
+
+
+    def get_edges_to_keep(self):
+        edges_to_keep = set()
+
+        for edge in self.edges:
+            from_node = edge.getFromNode()
+            to_node = edge.getToNode()
+
+            if from_node in self.internal_nodes or to_node in self.internal_nodes:
+                edges_to_keep.add(edge)
+            # from_point = Point(from_node.getCoord())
+            # to_point = Point(to_node.getCoord())
+
+            # if LineString([from_point, to_point]).intersects(self.boundary_polygon):
+            #     edges_to_keep.add(edge)
+
+        return edges_to_keep
+
+
+    def save_edges_to_keep(self):
+        path = self.config['paths']['edges_path']
+        edge_ids_to_keep = [edge.getID() for edge in self.edges_to_keep]
+        with open(path, 'w') as f:
+            for edge in edge_ids_to_keep:
+                f.write(edge + '\n')
+
+
+    def prune_network(self):
+        net_path = self.config['paths']['net_path']
+        pruned_path = self.config['paths']['pruned_path']
+        edges_path = self.config['paths']['edges_path']
+
+        command = ['netconvert', '-s', net_path, '--keep-edges.input-file', edges_path, '-o', pruned_path]
+        subprocess.call(command)
 
 
     def plot_clean_net(self, ax=None):

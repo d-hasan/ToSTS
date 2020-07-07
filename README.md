@@ -36,6 +36,15 @@ optional arguments:
   --traffic-regions-config TRAFFIC_REGIONS_CONFIG
 ```
 
+Once trips are generated, ```DUAROUTER``` needs to be run to generate routes for SUMO to work with. 
+
+** CAUTION: It is suspected that using DUAROUTER in this way is slightly incorrect, as it leads to major traffic jams and underutilization of the traffic network. But for small scale simulations it gets the job done FOR NOW. **
+
+Run:
+```
+duarouter --unsorted-input --ignore-errors --repair true --repair.from true --repair.to true -n data/osm_to_sumo/osm_pruned.net.xml --route-files [path to trip files] -o [path to output routes] --routing-threads [num routing threads]
+```
+
 ### Simulation Network
 The simulation network loads the generated SUMO Network from the OSM map of Downtown Toronto. The AOI Downtown boundary is defined in the ```simulation_net.cfg``` and should not be modified unless the AOI is changed. The traffic network nodes and edges are pruned based on the defined boundary and a new SUMO network is generated using ```NETCONVERT``` utility from SUMO. (*Details on how to prune are located in the **Prune SUMO Network** section of the README*)
 

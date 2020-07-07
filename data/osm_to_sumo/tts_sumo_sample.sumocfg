@@ -7,14 +7,14 @@
 
     <input>
         <net-file value="osm_pruned.net.xml"/>
-        <route-files value="tts_sumo.rou.xml"/>
+        <route-files value="tts_sumo_630_725.rou.xml"/>
         <additional-files value="osm.poly.xml"/>
     </input>
 
 
     <time>
         <begin value="0"/>
-        <end value="-1"
+        <end value="-1"/>
     </time>
 
     <processing>
@@ -32,7 +32,7 @@
     </report>
 
     <gui_only>
-        <gui-settings-file value="osm.view.xml"/>
+        <gui-settings-file value="tts_sumo_sample.view.xml"/>
     </gui_only>
 
 </configuration>

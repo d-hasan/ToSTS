@@ -36,6 +36,7 @@ optional arguments:
   --traffic-regions-config TRAFFIC_REGIONS_CONFIG
 ```
 
+## Routing Trips for SUMO
 Once trips are generated, ```DUAROUTER``` needs to be run to generate routes for SUMO to work with. 
 
 ** CAUTION: It is suspected that using DUAROUTER in this way is slightly incorrect, as it leads to major traffic jams and underutilization of the traffic network. But for small scale simulations it gets the job done FOR NOW. **
@@ -44,6 +45,11 @@ Run:
 ```
 duarouter --unsorted-input --ignore-errors --repair true --repair.from true --repair.to true -n data/osm_to_sumo/osm_pruned.net.xml --route-files [path to trip files] -o [path to output routes] --routing-threads [num routing threads]
 ```
+
+## Running the Simulation 
+To run the simulation, a sample SUMO config is provided in ```data/osm_to_sumo/tts_sumo_sample.sumocfg```. The route file is the only *new* file that is added once trips are generated and routed for SUMO.
+
+## Additional Notes
 
 ### Simulation Network
 The simulation network loads the generated SUMO Network from the OSM map of Downtown Toronto. The AOI Downtown boundary is defined in the ```simulation_net.cfg``` and should not be modified unless the AOI is changed. The traffic network nodes and edges are pruned based on the defined boundary and a new SUMO network is generated using ```NETCONVERT``` utility from SUMO. (*Details on how to prune are located in the **Prune SUMO Network** section of the README*)
@@ -74,7 +80,7 @@ The Trip Planner does the bulk of the lifting in actually generating trips for S
 To generate all trips, the Trip Planner takes about 8 hours on a Ryzen 2700x @ 3.7 GHz base. Work is being considered to multi thread this.
 
 
-## Prune SUMO Network
+### Prune SUMO Network
 Although not strictly something implemented in this library, pruning of the SUMO network after conversion from OSM proved to be a task that challenged us. The easy way to do it is actually to use ```NETCONVERT``` from SUMO and convert from a SUMO network to another SUMO network.
 
 To prune the SUMO network within a boundary or from a list of edges refer to [this](https://sumo.dlr.de/docs/Networks/Further_Options.html#pruning_the_imported_network) documentation and look at the NETCONVERT [documentation](https://sumo.dlr.de/docs/NETCONVERT.html#edge_removal) in the edge removal section.

@@ -279,15 +279,11 @@ class SimulationNet():
             from_node = edge.getFromNode()
             to_node = edge.getToNode()
 
-            if from_node in self.internal_nodes or to_node in self.internal_nodes:
+            if from_node not in self.pruned_nodes or to_node not in self.pruned_nodes:
                 edges_to_keep.add(edge)
-            # from_point = Point(from_node.getCoord())
-            # to_point = Point(to_node.getCoord())
-
-            # if LineString([from_point, to_point]).intersects(self.boundary_polygon):
-            #     edges_to_keep.add(edge)
 
         return edges_to_keep
+
 
 
     def save_edges_to_keep(self):

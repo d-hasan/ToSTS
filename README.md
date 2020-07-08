@@ -88,3 +88,8 @@ The command used in this library (in the ```prune_network``` function of  the cl
 
 ```
 netconvert -s osm.net.xml --keep-edges.input-file edges_to_keep.txt -o osm_pruned.net.xml  ```
+
+
+```
+python duaIterate.py -n /home/danial/Documents/Programming/MERL/toronto-scenario/data/osm_to_sumo/osm_pruned.net.xml -t /home/danial/Documents/Programming/MERL/toronto-scenario/data/generated_trips/tts_trips_630_725.xml -C duarouter--routing-threads 12 sumo--threads 12 duarouter--unsorted-input duarouter--repair duarouter--repair.from duarouter--repair.to
+```

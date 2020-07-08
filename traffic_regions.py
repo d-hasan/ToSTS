@@ -86,11 +86,11 @@ class TrafficRegions():
                 # There's one polygon that somehow isn't assigned a PD number...
                 # It's in York Region, North of PD 25
                 not_found.append(taz_index)
-                print(taz_index)
+                print('No Planning District found for TAZ {}'.format(taz_index))
                 overlapping_pd = []
                 for pd_index, pd_row in pd_gdf.iterrows():
                     if taz_row.geometry.overlaps(pd_row.geometry):
-                        print('\t', pd_index)
+                        print('\tClose Planning District:', pd_index)
                         overlapping_pd.append([pd_index, pd_row])
                         
                 if len(overlapping_pd) > 1:
@@ -106,7 +106,7 @@ class TrafficRegions():
                 else:
                     closest = overlapping_pd[0]
 
-                print('\tclosest:', closest[1][0])
+                print('\tclosest PD {}: {}'.format(closest[0], closest[1][0]))
                 taz_gdf.loc[taz_index, 'PD'] = closest[0]
         return taz_gdf
         

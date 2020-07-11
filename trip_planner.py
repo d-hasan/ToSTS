@@ -3,6 +3,7 @@ import sys
 import os 
 import pdb 
 import time 
+import xml.etree.ElementTree as ET
 
 import numpy as np 
 import scipy
@@ -80,8 +81,11 @@ class TripPlanner():
         self.hway_trips = 0
 
 
-        self.hway_trip_cached = {}
-        self.trip_timings = {}
+        self.hway_trip_cache = {}
+        self.trip_distance_cache = {}
+        self.pd_borders_cache = {}
+        self.hway_in_pd_cache = {}
+        self.hway_nearest_points_cache = {}
 
         self.initialize_trip_file()
 
@@ -151,9 +155,9 @@ class TripPlanner():
             f.write('</trips>')
 
     def get_speed_distribution(self):
-        a = self.min_speed_factor/self.speed_dev
-        b = self.max_speed_factor/self.speed_dev
         mean = 1
+        a = (self.min_speed_factor - mean)/self.speed_dev
+        b = (self.max_speed_factor - mean)/self.speed_dev
         return scipy.stats.truncnorm(a, b, loc=mean, scale=self.speed_dev)
 
     def get_trivial_speed(self):
@@ -161,6 +165,20 @@ class TripPlanner():
 
     def get_hway_speed(self):
         return self.speed_distr.rvs() * self.avg_hway_speed
+
+    
+    def sort_trips(self):
+        tree = ET.parse(self.output_file)
+        root = tree.getroot()
+
+        def sortchildrenby(parent, attr):
+            parent[:] = sorted(parent, key=lambda child: int(child.get(attr)))
+
+        sortchildrenby(root, 'depart')
+
+        tree.write(self.output_file)
+
+
 
     def generate_trips(self):
         print('Generating Trips: {} to {}'.format(self.trip_start_time, self.trip_end_time))
@@ -175,12 +193,13 @@ class TripPlanner():
 
         for i in range(len(trip_times)):
             trip_time = trip_times[i]
-            trip_time_min = utils.convert_clock_to_minutes(trip_times[i])
+            trip_time_min = utils.convert_clock_to_minutes(trip_time)
             trip_time_sec = (trip_time_min - self.trip_start_time_minutes) * 60
 
             next_trip_time = trip_times[i+1] if i + 1 < len(trip_times) else trip_time+5
             next_trip_time_min = utils.convert_clock_to_minutes(next_trip_time)
             next_trip_time_sec = (next_trip_time_min - self.trip_start_time_minutes)*60
+
 
             print('Time: {} (24hr) or {}s'.format(trip_time, trip_time_sec))
             trips = self.trips[trip_time]
@@ -210,6 +229,14 @@ class TripPlanner():
 
                 trips_processed += trip[2]
                 # if trips_processed % 10000 == 0:
+            
+            departure_times = [sumo_trip.departure_time for sumo_trip in all_sumo_trips]
+            departure_times_float = [sumo_trip.original_departure_time for sumo_trip in all_sumo_trips]
+
+            if min(departure_times) < trip_time_sec:
+                pdb.set_trace()
+            
+
             elapsed_time = time.time() - start_time
             print('\tGenerated {} trips in {:.1f}s'.format(trips_processed, elapsed_time))
             print('\t\t E-E:{} | E-I:{} | I-E:{} | I-I:{}'.format(*self.trip_type_counts))
@@ -218,6 +245,8 @@ class TripPlanner():
                 self.trivial_trips, 
                 self.hway_trips
             ))
+            print('\t\t Min Departure: {} | Max Departure: {}'.format(min(departure_times), max(departure_times)))
+            # print('\t\t Min Departure: {} | Max Departure: {}'.format(min(departure_times_float), max(departure_times_float)))
 
             print('\tWriting trips to file')
             start_write_time = time.time() 
@@ -227,6 +256,7 @@ class TripPlanner():
                 # if sumo_trips and trip_type == 0b00:
                 #     pdb.set_trace()
         self.complete_trip_file()
+        self.sort_trips()
 
                     
     def classify_trip(self, od_data):
@@ -262,6 +292,7 @@ class TripPlanner():
 
         departure_intervals = np.random.exponential(beta, trip_count)
         departure_times = trip_time + departure_intervals.cumsum()
+        
 
         if len(path) <= self.trivial_path_length:
             # The planning districts are second degree neighbours within the AOI Regions
@@ -307,6 +338,8 @@ class TripPlanner():
             
             inflow_edge, inflow_node = self.get_trivial_inflow_edge(inflow_trip_segment, major_inflow=False)
             inflow_time = departure_time + self.compute_trivial_inflow_travel_time(origin_taz, inflow_node)
+            # print('Departure: {} | Inflow: {}'.format(departure_time, inflow_time))
+
             outflow_edge = self.get_trivial_outflow_edge(outflow_trip_segment, major_outflow=False)
 
         
@@ -342,6 +375,7 @@ class TripPlanner():
                     ext_to_ext=True  
                 )
         inflow_time = departure_time + self.compute_hway_inflow_travel_time(trip_nodes, trip_edges, aoi_trip_edges, origin_point, inflow_node)
+        # print('Departure: {} | Inflow: {}'.format(departure_time, inflow_time))
         if inflow_edge:
             inflow_point = inflow_edge.getFromNode().getCoord()
             # treat the outflow_edge like an internal to external trip, with the internal point being the inflow node
@@ -391,7 +425,7 @@ class TripPlanner():
                 boundary = self.aoi_boundary
                 straight_trip = LineString([Point(origin_point), Point(dest_point)])
                 inflow_edge, inflow_node = self.get_trivial_inflow_edge(straight_trip,major_inflow=False)
-                inflow_time = self.compute_trivial_inflow_travel_time(origin_point, inflow_node)
+                inflow_time = departure_times[i] + self.compute_trivial_inflow_travel_time(origin_point, inflow_node)
             else:
                 hway_trip = self.get_hway_trip(origin_taz, dest_taz)
                 if hway_trip:
@@ -408,7 +442,10 @@ class TripPlanner():
                     dest_point,
                     departure_times[i]    
                 )
+                if not inflow_node:
+                    pdb.set_trace()
                 inflow_time = departure_times[i] + self.compute_hway_inflow_travel_time(trip_nodes, trip_edges, aoi_trip_edges, origin_point, inflow_node)
+                # print('Departure: {} | Inflow: {}'.format(departure_times[i], inflow_time))
                 self.hway_trips += 1
             
             inflow_data = [inflow_edge, 0, origin_point, trip[0]]
@@ -465,6 +502,7 @@ class TripPlanner():
             dest_data = [outflow_edge, 'max', dest_point, trip[1]]
 
             self.trip_id_counter += 1
+            # print('Departure: {} '.format(departure_times[i]))
             all_trips.append(SUMOTrip(origin_data, dest_data, departure_times[i], self.trip_id_counter))
             
         return all_trips
@@ -498,6 +536,7 @@ class TripPlanner():
 
 
             self.trip_id_counter += 1
+            # print('Departure: {} '.format(departure_times[i]))
             sumo_trip = SUMOTrip(origin_data, dest_data, departure_times[i], self.trip_id_counter)
                            
             all_trips.append(sumo_trip)
@@ -506,8 +545,8 @@ class TripPlanner():
 
     
     def get_hway_trip(self, origin_taz, dest_taz):
-        if (origin_taz.name, dest_taz.name) in self.hway_trip_cached:
-            return self.hway_trip_cached[(origin_taz.name, dest_taz.name)]
+        if (origin_taz.name, dest_taz.name) in self.hway_trip_cache:
+            return self.hway_trip_cache[(origin_taz.name, dest_taz.name)]
         else:
             return self.compute_hway_trip(origin_taz, dest_taz)
 
@@ -541,10 +580,10 @@ class TripPlanner():
                     aoi_trip_edges.append(i)
 
             if len(aoi_trip_edges) > 0:
-                self.hway_trip_cached[(origin_taz.name, dest_taz.name)] = [trip_nodes, trip_edges, aoi_trip_edges]
+                self.hway_trip_cache[(origin_taz.name, dest_taz.name)] = [trip_nodes, trip_edges, aoi_trip_edges]
                 return trip_nodes, trip_edges, aoi_trip_edges
 
-        self.hway_trip_cached[(origin_taz.name, dest_taz.name)] = None      
+        self.hway_trip_cache[(origin_taz.name, dest_taz.name)] = None      
         
         return None
 
@@ -558,6 +597,8 @@ class TripPlanner():
 
         if edge == 'trivial':
             if not ext_to_ext:
+                pdb.set_trace()
+            else:
                 pdb.set_trace()
             return None, 0
         else:
@@ -702,18 +743,17 @@ class TripPlanner():
                 total_travel_time += distance / self.get_trivial_speed()
 
             else: 
-                hway = self.traffic_regions.hways_gs.loc[edge]
                 border = self.compute_pd_border(from_node, to_node)
-                curr_pd  = self.traffic_regions.pd_gdf.loc[to_node].geometry.buffer(0)
-
-                hway_in_curr_pd = hway.intersection(curr_pd)
+                hway_in_curr_pd = self.compute_hway_in_pd(edge, to_node)
 
                 distance_from_origin = Point(origin_point).distance(hway_in_curr_pd)
                 travel_time_from_origin = distance_from_origin / self.get_trivial_speed()
 
                 closest_point_to_origin = ops.nearest_points(hway_in_curr_pd, Point(origin_point))[0]
                 closest_point_to_border = ops.nearest_points(hway_in_curr_pd, border)[0]
-                hway_leg = ops.split(hway_in_curr_pd, MultiPoint([closest_point_to_origin, closest_point_to_border]))[0]
+                hway_legs = ops.split(hway_in_curr_pd, MultiPoint([closest_point_to_origin, closest_point_to_border]))
+                hway_leg = hway_legs[1] if len(hway_legs) > 1 else hway_legs[0]
+                # pdb.set_trace()
                 distance_on_hway = hway_leg.length
                 travel_time_on_hway = distance_on_hway / self.get_hway_speed()
 
@@ -727,7 +767,7 @@ class TripPlanner():
 
                 trip_key = (prev_node, curr_node, next_node)
 
-                if trip_key not in self.trip_timings:
+                if trip_key not in self.trip_distance_cache:
                     curr_pd_centroid = self.traffic_regions.pd_gdf.loc[curr_node].geometry.centroid
 
                     prev_border = self.compute_pd_border(prev_node, curr_node)
@@ -736,60 +776,33 @@ class TripPlanner():
                     prev_distance = curr_pd_centroid.distance(prev_border)
                     next_distance = curr_pd_centroid.distance(next_border)
 
+                    self.trip_distance_cache[trip_key] = [prev_distance, next_distance]
+                
 
-                    travel_time = 0
-                    if prev_edge == 'trivial':
-                        travel_time += prev_distance / self.get_trivial_speed()
-                    else:
-                        travel_time += prev_distance / self.get_hway_speed()
-                    
-                    if next_edge == 'trivial':
-                        travel_time += next_distance / self.get_trivial_speed()
-                    else:
-                        travel_time += next_distance / self.get_hway_speed()
 
-                    self.trip_timings[trip_key] = travel_time 
-                    total_travel_time += travel_time
-
+                prev_distance, next_distance = self.trip_distance_cache[trip_key]
+                travel_time = 0
+                if prev_edge == 'trivial':
+                    travel_time += prev_distance / self.get_trivial_speed()
                 else:
-                    total_travel_time += self.trip_timings[trip_key]
+                    travel_time += prev_distance / self.get_hway_speed()
+                
+                if next_edge == 'trivial':
+                    travel_time += next_distance / self.get_trivial_speed()
+                else:
+                    travel_time += next_distance / self.get_hway_speed()
 
-                # if prev_edge == 'trivial' and next_edge == 'trivial':
-                #     distance = self.compute_travel_between_borders(prev_node, curr_node, next_node)
-                # elif prev_edge == 'trivial':
-                #     hway_distance, trivial_distance = self.compute_travel_between_hway_and_border(
-                #         next_edge, 
-                #         next_node, 
-                #         curr_node,
-                #         prev_node
-                #         )
-                # elif next_edge == 'trivial':
-                #     hway_distance, trivial_path_length = self.compute_travel_between_hway_and_border(
-                #         prev_edge, 
-                #         prev_node,
-                #         curr_node,
-                #         next_node
-                #     )
-                # else:
-                #     hway_distance, trivial_path_length = self.compute_travel_on_hways_in_plan_dist(
-                #         prev_edge,
-                #         next_edge,
-                #         prev_node,
-                #         curr_node,
-                #         next_node
-                #     )
+                total_travel_time += travel_time
+
+        if total_travel_time < 0:
+            pdb.set_trace()
 
         return total_travel_time
 
 
     def compute_travel_on_hways_in_plan_dist(self, prev_hway_name, next_hway_name, from_pd_name, curr_pd_name, next_pd_name):
-        prev_hway = self.traffic_regions.hways_gs.loc[prev_hway_name]
-        next_hway = self.traffic_regions.hways_gs.loc[next_hway_name]
-
-        curr_pd  = self.traffic_regions.pd_gdf.loc[curr_pd_name].geometry.buffer(0)
-
-        prev_hway_in_pd = prev_hway.intersection(curr_pd)
-        next_hway_in_pd = next_hway.intersection(curr_pd)
+        prev_hway_in_pd = self.compute_hway_in_pd(prev_hway_name, curr_pd_name)
+        next_hway_in_pd = self.compute_hway_in_pd(next_hway_name, curr_pd_name)
 
         hways_closest_points = ops.nearest_points(prev_hway_in_pd, next_hway_in_pd)
         distance_between = hways_closest_points[0].distance(hways_closest_points[1])
@@ -819,12 +832,8 @@ class TripPlanner():
 
         return distance 
 
-    def compute_travel_between_hway_and_border(self, hway_name, prev_pd_name, curr_pd_name, next_pd_name):
-        hway = self.traffic_regions.hways_gs.loc[hway_name]
-        
-        curr_pd = self.traffic_regions.pd_gdf.loc[curr_pd_name].geometry.buffer(0)
-
-        hway_in_pd = hway.intersection(curr_pd)
+    def compute_travel_between_hway_and_border(self, hway_name, prev_pd_name, curr_pd_name, next_pd_name):       
+        hway_in_pd = self.compute_hway_in_pd(hway_name, curr_pd_name)
 
         prev_border = self.compute_pd_border(prev_pd_name, curr_pd_name)
         next_border = self.compute_pd_border(curr_pd_name, next_pd_name)
@@ -844,14 +853,37 @@ class TripPlanner():
         inflow_point = inflow_node.getCoord()
         distance = Point(origin_point).distance(Point(inflow_point))
         travel_time = distance / self.get_trivial_speed()
+        if travel_time < 0:
+            pdb.set_trace()
         return travel_time
 
 
     def compute_pd_border(self, pd_name_1, pd_name_2):
-        pd_1 = self.traffic_regions.pd_gdf.loc[pd_name_1].geometry.buffer(0)
-        pd_2 = self.traffic_regions.pd_gdf.loc[pd_name_2].geometry.buffer(0)
+        key = tuple(sorted([pd_name_1, pd_name_2]))
 
-        return pd_1.intersection(pd_2)
+        if key in self.pd_borders_cache:
+            border = self.pd_borders_cache[key]
+        else:
+            pd_1 = self.traffic_regions.pd_gdf.loc[pd_name_1].geometry.buffer(0)
+            pd_2 = self.traffic_regions.pd_gdf.loc[pd_name_2].geometry.buffer(0)
+
+            border = pd_1.intersection(pd_2)
+            self.pd_borders_cache[key] = border 
+
+        return  border 
+
+    def compute_hway_in_pd(self, hway_name, pd_name):
+        key = (hway_name, pd_name)
+        if not key in self.hway_in_pd_cache:
+            hway = self.traffic_regions.hways_gs.loc[hway_name]
+            curr_pd = self.traffic_regions.pd_gdf.loc[pd_name].geometry.buffer(0)
+
+            hway_in_pd = hway.intersection(curr_pd)
+            self.hway_in_pd_cache[key] = hway_in_pd
+
+        hway_in_pd = self.hway_in_pd_cache[key]
+        return hway_in_pd
+
     
     def generate_point_in_polygon(self, polygon):
         min_x, min_y, max_x, max_y = polygon.bounds

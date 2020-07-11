@@ -19,6 +19,7 @@ class SUMOTrip():
         self.dest_taz_original = dest[3]
         # self.dest_taz = dest[4]
 
+        self.original_departure_time = departure_time
         self.departure_time = int(departure_time)
         self.trip_num = trip_num
         self.trip_id = '{}-{}-{}-{}'.format(

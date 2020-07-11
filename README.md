@@ -52,7 +52,7 @@ duarouter --unsorted-input --ignore-errors --repair true --repair.from true --re
 Duaiterate uses ```DUAROUTER``` and ```SUMO``` iteratively to create routes and run the simulation to update edge weights. This should converge to the dynamic user equilibrium with enough iterations. The problem is that this takes too long to run for the entire simulation. 
 
 ```
-python duaIterate.py -n /home/danial/Documents/Programming/MERL/toronto-scenario/data/osm_to_sumo/osm_pruned.net.xml -t /home/danial/Documents/Programming/MERL/toronto-scenario/data/generated_trips/tts_trips_630_725.xml -C duarouter--routing-threads 12 sumo--threads 12 duarouter--unsorted-input duarouter--repair duarouter--repair.from duarouter--repair.to
+python duaIterate.py -n data/tts_sumo/pruned_osm.net.xml -t data/generated_trips/tts_630_1030.xml -C duarouter--routing-threads 12 sumo--threads 12 duarouter--unsorted-input duarouter--repair duarouter--repair.from duarouter--repair.to
 ```
 
 ## Running the Simulation 

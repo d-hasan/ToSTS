@@ -20,7 +20,8 @@ class TTSData():
         super().__init__()
         
         self.config = utils.get_config(config_path)
-        self.time_interval = int(self.config['DEFAULT']['time_interval'])
+        self.data_time_interval = int(self.config['DEFAULT']['data_time_interval'])
+        self.desired_time_interval = int(self.config['DEFAULT']['desired_time_interval'])
         self.filter_width = int(self.config['DEFAULT']['filter_width'])
 
         self.tts_path = self.config['DEFAULT']['tts_path']
@@ -42,6 +43,10 @@ class TTSData():
         smooth_time_data_dict, smooth_time_data_sparse = self.smooth_trip_counts()
         self.smooth_time_data_dict = smooth_time_data_dict
         self.smooth_time_data_sparse = smooth_time_data_sparse
+
+        self.od_data, self.od_counts = self.get_od_data()
+        self.downsampled_od_data = self.get_downsampled_od_data()
+        
 
         self.save_data()
 
@@ -220,7 +225,7 @@ class TTSData():
 
             for i, trips in enumerate(weighted_allocations[trip_time]):
                 trip_time_minutes = utils.convert_clock_to_minutes(trip_time)
-                smooth_time_minutes = trip_time_minutes + (i - center_index) * self.time_interval
+                smooth_time_minutes = trip_time_minutes + (i - center_index) * self.data_time_interval
                 smooth_time = utils.convert_minutes_to_clock(smooth_time_minutes)
                 smooth_trip_data[smooth_time] += trips 
 
@@ -250,4 +255,46 @@ class TTSData():
             smooth_time_data_sparse[trip_time] = np.array(smooth_time_data_sparse[trip_time])
 
         return smooth_time_data_dict, smooth_time_data_sparse
+        
 
+    def get_od_data(self):
+        time_data_dict = self.smooth_time_data_dict
+        od_pair_counts = {}
+        od_pair_data = {}
+
+        for time in time_data_dict:
+            for origin in time_data_dict[time]:
+                for dest in time_data_dict[time][origin]:
+                    pair = (origin, dest)
+
+                    if pair not in od_pair_counts:
+                        od_pair_counts[pair] = 0
+                        od_pair_data[pair] = {}
+
+                    curr_count = time_data_dict[time][origin][dest]
+
+                    if curr_count > od_pair_counts[pair]:
+                        od_pair_counts[pair] = curr_count
+                    # od_pair_counts[pair] += self.smooth_time_data_dict[time][origin][dest]
+                    od_pair_data[pair][time] = time_data_dict[time][origin][dest]
+
+        return od_pair_data, od_pair_counts
+
+    def get_downsampled_od_data(self):
+        minimum_trip_time = min(list(self.smooth_time_data_dict.keys()))
+
+        new_time_intervals = np.arange(0, 24.5*60 + 1, self.desired_time_interval)
+        new_clock_intervals = new_time_intervals + utils.convert_clock_to_minutes(minimum_trip_time)
+        new_clock_intervals = [utils.convert_minutes_to_clock(trip_time) for trip_time in new_clock_intervals]
+        
+        new_od_data = {}
+        for od_pair in self.od_data:
+            new_od_data[od_pair] = defaultdict(int)
+            trip_times = sorted(list(self.od_data[od_pair].keys()))
+            interval_indices = np.searchsorted(new_clock_intervals[1:], trip_times, 'left')
+
+            for trip_time, index in zip(trip_times, interval_indices):
+                time_interval_clock = new_clock_intervals[index]
+                new_od_data[od_pair][time_interval_clock] += self.od_data[od_pair][trip_time]
+
+        return new_od_data

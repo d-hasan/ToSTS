@@ -8,18 +8,21 @@
     <input>
         <net-file value="pruned_osm.net.xml"/>
         <!-- <route-files value="tts_sumo_630_1030.rou.xml"/> -->
-        <route-files value="tts_630_1030.xml"/>
-        <additional-files value="osm.poly.xml"/>
+        <!-- <route-files value="dua_tts_trips.xml"/> -->
+        <route-files value="dua_sampled_trips_30min_capped_new.xml"/>
+        <!-- <additional-files value="osm.poly.xml"/> -->
     </input>
 
 
     <time>
-        <begin value="0"/>
+        <!-- <begin value="0"/> -->
+        <begin value="42300"/>
         <end value="-1"/>
     </time>
 
     <processing>
         <ignore-route-errors value="true"/>
+        <scale value="0.85"/>
     </processing>
 
     <routing>

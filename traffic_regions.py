@@ -46,6 +46,8 @@ class TrafficRegions():
         self.pd_shape_path = self.config['DEFAULT']['pd_shape_path']
         self.orn_path = self.config['DEFAULT']['orn_path']
 
+        # self.extra_roads = self.config['extra_roads']['arteries'].strip().splitlines()
+
         self.crs = crs 
         self.location_offset = location_offset
         
@@ -119,7 +121,10 @@ class TrafficRegions():
     def load_highway_gdf(self, orn_path):
         print('Loading Ontario Road Network and extracting highways, this can take a few minutes.')
         orn_gdf = gpd.read_file(orn_path)
-        hway_gdf =  orn_gdf[orn_gdf.ROAD_CLASS.isin(['Freeway', 'Expressway / Highway'])]
+        hway_gdf =  orn_gdf[(orn_gdf.ROAD_CLASS.isin(['Freeway', 'Expressway / Highway'])) 
+            # ^ (orn_gdf.OFFICIAL_S.str.contains('|'.join(self.extra_roads)).fillna(False))
+        ]
+        # pdb.set_trace()
         hway_gdf = self.project_and_translate(hway_gdf)
 
         hways = {}

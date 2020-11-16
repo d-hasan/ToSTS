@@ -3,6 +3,8 @@ import sys
 import configparser
 import subprocess
 import pdb
+import argparse
+from argparse import REMAINDER
 
 import matplotlib.pyplot as plt 
 from matplotlib.lines import Line2D
@@ -47,17 +49,24 @@ class SimulationNet():
         self.directions = {'north': -1, 'south': 1, 'east': 1, 'west': -1}
 
         all_boundary_edges = [self.get_boundary_edges(card_direction) for card_direction in self.card_directions]
-        self.artificial_edges = self.get_artificial_edges()
-        
-        insertion_count = 0
-        appended_boundary_edges = []
-        for i, edges in enumerate(all_boundary_edges):
-            appended_boundary_edges += edges 
-            if self.artificial_edges[insertion_count][1] == i + 1:
-                appended_boundary_edges += [self.artificial_edges[insertion_count][0]]
-                insertion_count += 1
-        
-        self.boundary_edges = appended_boundary_edges
+
+        if 'artificial_edges' in self.config:
+            self.artificial_edges = self.get_artificial_edges()
+            
+            insertion_count = 0
+            appended_boundary_edges = []
+            for i, edges in enumerate(all_boundary_edges):
+                appended_boundary_edges += edges 
+                if self.artificial_edges[insertion_count][1] == i + 1:
+                    appended_boundary_edges += [self.artificial_edges[insertion_count][0]]
+                    insertion_count += 1
+            self.boundary_edges = appended_boundary_edges
+
+        else:
+            appended_boundary_edges = []
+            for i, edges in enumerate(all_boundary_edges):
+                appended_boundary_edges += edges 
+            self.boundary_edges = appended_boundary_edges
         
         self.boundary_polygon = self.create_polygon()
 
@@ -125,8 +134,8 @@ class SimulationNet():
     # clarify that this only sorts them for one side of boundary
     def sort_edges_for_polygon(self, edges, coord_index, direction):
         from_coords = [edge.getFromNode().getCoord()[coord_index] * direction for edge in edges]
-        zipped_lists = zip(from_coords, edges)
-        sorted_pairs = sorted(zipped_lists)
+        zipped_lists = list(zip(from_coords, edges))
+        sorted_pairs = sorted(zipped_lists, key= lambda x:x[0])
 
         tuples = zip(*sorted_pairs)
         try:
@@ -335,4 +344,22 @@ class SimulationNet():
 
 
 
-    
+
+
+parser = argparse.ArgumentParser(description='Prune SUMO network based on boundary defined in config')
+parser.add_argument('config', type=str, help='Config folder')
+parser.add_argument('--sim-net-config', type=str, default='simulation_net.cfg', help='to change default simulation net config file')
+
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+
+    config_dir = args.config
+
+    print()
+
+    print('Initializing Simulation Network...')
+    sim_net_config = os.path.join(config_dir, args.sim_net_config)
+    sim_net = SimulationNet(sim_net_config)
+    print('Pruned network processed')
+

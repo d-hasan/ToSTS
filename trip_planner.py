@@ -3,6 +3,7 @@ import sys
 import os 
 import pdb 
 import time 
+import subprocess
 import xml.etree.ElementTree as ET
 
 import numpy as np 
@@ -58,6 +59,8 @@ class TripPlanner():
         self.trivial_path_length = int(self.config['trip']['trivial_path_length'])
 
         self.output_file = self.config['DEFAULT']['output_file']
+        self.net_path = self.config['DEFAULT']['net_path']
+
         self.sim_net = sim_net
         self.aoi_boundary = self.sim_net.boundary_polygon
         self.trips = tts_trips
@@ -179,6 +182,21 @@ class TripPlanner():
         tree.write(self.output_file)
 
 
+    def validate_trips(self):
+        trip_path = self.output_file
+        net_path = self.net_path
+
+        command = [
+            'duarouter',
+            '--repair',
+            'repair.from',
+            'repair.to',
+            '--ignore-errors',
+            '--write-trips',
+            '-n', 
+            '--route-files', trip_path,
+            '-o', net_path 
+        ]
 
     def generate_trips(self):
         print('Generating Trips: {} to {}'.format(self.trip_start_time, self.trip_end_time))
@@ -340,14 +358,14 @@ class TripPlanner():
             inflow_time = departure_time + self.compute_trivial_inflow_travel_time(origin_taz, inflow_node)
             # print('Departure: {} | Inflow: {}'.format(departure_time, inflow_time))
 
-            outflow_edge = self.get_trivial_outflow_edge(outflow_trip_segment, major_outflow=False)
+            outflow_edge, outflow_node = self.get_trivial_outflow_edge(outflow_trip_segment, major_outflow=False)
 
         
         if inflow_edge and outflow_edge:
             self.trivial_trips += 1
             self.trip_id_counter += 1
-            origin_data = [inflow_edge, 0, origin_point, origin_taz.name]
-            dest_data = [outflow_edge, 'max', dest_point, dest_taz.name]
+            origin_data = [inflow_edge, 0, inflow_node, origin_point, origin_taz.name]
+            dest_data = [outflow_edge, 'max', outflow_node, dest_point, dest_taz.name]
             return SUMOTrip(origin_data, dest_data, inflow_time, self.trip_id_counter)
         else: 
             return None 
@@ -379,14 +397,14 @@ class TripPlanner():
         if inflow_edge:
             inflow_point = inflow_edge.getFromNode().getCoord()
             # treat the outflow_edge like an internal to external trip, with the internal point being the inflow node
-            outflow_edge = self.get_outflow_edge(trip_nodes, trip_edges, aoi_trip_edges, inflow_point, dest_point, ext_to_ext=True)
+            outflow_edge, outflow_node = self.get_outflow_edge(trip_nodes, trip_edges, aoi_trip_edges, inflow_point, dest_point, ext_to_ext=True)
 
         
         if inflow_edge and outflow_edge:
             self.hway_trips += 1
             self.trip_id_counter += 1
-            origin_data = [inflow_edge, 0, origin_point, origin_taz.name]
-            dest_data = [outflow_edge, 'max', dest_point, dest_taz.name]
+            origin_data = [inflow_edge, 0, inflow_node, origin_point, origin_taz.name]
+            dest_data = [outflow_edge, 'max', outflow_node, dest_point, dest_taz.name]
             return SUMOTrip(origin_data, dest_data, inflow_time, self.trip_id_counter)
         return None 
     
@@ -416,8 +434,8 @@ class TripPlanner():
             if not Point(dest_point).within(self.aoi_boundary):
                 continue
 
-            dest_edge, dest_edge_pos = self.get_sumo_edge_for_point(dest_point)
-            dest_data = [dest_edge, dest_edge_pos, dest_point, trip[1]]
+            dest_edge, dest_edge_pos, dest_node = self.get_sumo_edge_for_point(dest_point, incoming=True)
+            dest_data = [dest_edge, dest_edge_pos, dest_node, dest_point, trip[1]]
             
             # if (len(path) < 3 and random.random() < 0.5) or len(path) == 1:
             if len(path) <= self.trivial_path_length:
@@ -448,7 +466,7 @@ class TripPlanner():
                 # print('Departure: {} | Inflow: {}'.format(departure_times[i], inflow_time))
                 self.hway_trips += 1
             
-            inflow_data = [inflow_edge, 0, origin_point, trip[0]]
+            inflow_data = [inflow_edge, 0, inflow_node, origin_point, trip[0]]
             
             self.trip_id_counter += 1
             all_trips.append(SUMOTrip(inflow_data, dest_data, inflow_time, self.trip_id_counter))
@@ -480,13 +498,13 @@ class TripPlanner():
             if not Point(origin_point).within(self.aoi_boundary):
                 continue 
 
-            origin_edge, origin_edge_pos = self.get_sumo_edge_for_point(origin_point)
-            origin_data = [origin_edge, origin_edge_pos, origin_point, trip[0]]
+            origin_edge, origin_edge_pos, origin_node = self.get_sumo_edge_for_point(origin_point, outgoing=True)
+            origin_data = [origin_edge, origin_edge_pos, origin_node, origin_point, trip[0]]
             
             if len(path) <= self.trivial_path_length:
                 self.trivial_trips += 1
                 straight_trip = LineString([Point(origin_point), Point(dest_point)])
-                outflow_edge = self.get_trivial_outflow_edge(straight_trip, major_outflow=False)
+                outflow_edge, outflow_node = self.get_trivial_outflow_edge(straight_trip, major_outflow=False)
             else:
                 hway_trip = self.get_hway_trip(origin_taz, dest_taz)
                 if hway_trip:
@@ -495,11 +513,11 @@ class TripPlanner():
                     # hway trip doesnt go through AOI 
                     continue 
 
-                outflow_edge = self.get_outflow_edge(trip_nodes, trip_edges, aoi_trip_edges, origin_point, dest_point)
+                outflow_edge, outflow_node = self.get_outflow_edge(trip_nodes, trip_edges, aoi_trip_edges, origin_point, dest_point)
                 self.hway_trips += 1
 
 
-            dest_data = [outflow_edge, 'max', dest_point, trip[1]]
+            dest_data = [outflow_edge, 'max', outflow_node, dest_point, trip[1]]
 
             self.trip_id_counter += 1
             # print('Departure: {} '.format(departure_times[i]))
@@ -528,11 +546,11 @@ class TripPlanner():
             if not Point(origin_point).within(self.aoi_boundary) or not Point(dest_point).within(self.aoi_boundary):
                 continue
 
-            origin_edge, origin_edge_pos = self.get_sumo_edge_for_point(origin_point)
-            origin_data = [origin_edge, origin_edge_pos, origin_point, trip[0]]
+            origin_edge, origin_edge_pos, origin_node = self.get_sumo_edge_for_point(origin_point, outgoing=True)
+            origin_data = [origin_edge, origin_edge_pos, origin_node, origin_point, trip[0]]
         
-            dest_edge, dest_edge_pos, = self.get_sumo_edge_for_point(dest_point)
-            dest_data = [dest_edge, dest_edge_pos, dest_point, trip[1]]
+            dest_edge, dest_edge_pos, dest_node = self.get_sumo_edge_for_point(dest_point, incoming=True)
+            dest_data = [dest_edge, dest_edge_pos, dest_node, dest_point, trip[1]]
 
 
             self.trip_id_counter += 1
@@ -663,8 +681,8 @@ class TripPlanner():
                 pdb.set_trace()
             return None, 0
         else:
-            outflow_edge = self.get_hway_outflow_edge(edge)
-            return outflow_edge
+            outflow_edge, outflow_node = self.get_hway_outflow_edge(edge)
+            return outflow_edge, outflow_node
            
         
         return outflow_edge
@@ -674,16 +692,21 @@ class TripPlanner():
         outflow_dists = [(outflow_geometry.distance(Point(node.getCoord())), node) for node in all_outflow_nodes]
         outflow_dists_closest = [(dist, node) for dist, node in outflow_dists if dist < self.max_node_distance]
 
-        # Pick one of 3 closest outflows 
-        try:
-            outflow_node = random.choice(sorted(outflow_dists_closest)[:3])[1]
-        except:
-            return None 
+        outflow_node_capacities = np.array([all_outflow_nodes[node] for _, node in outflow_dists_closest])
+        outflow_node_capacities = outflow_node_capacities/outflow_node_capacities.sum()
+
+        if len(outflow_dists_closest) > 0:
+            outflow_index = np.random.choice(np.arange(len(outflow_nodes)), p=outflow_node_capacities)
+            outflow_dist, outflow_node = outflow_dists_closest[outflow_index]
+        else:
+            return None, None 
+
         outflow_edges = [edge for edge in outflow_node.getIncoming()
                         if edge.getFromNode() in self.sim_net.internal_nodes]
         outflow_edge = random.choice(outflow_edges)
 
-        return outflow_edge
+        return outflow_edge, outflow_node
+        
 
     def get_hway_outflow_edge(self, hway_name):
         ''' Returns highway outflow edge, given a hway name.
@@ -694,10 +717,10 @@ class TripPlanner():
                 if edge.getToNode() not in self.sim_net.pruned_nodes]
         outflow_edge = random.choice(outflow_edges)
 
-        return outflow_edge
+        return outflow_edge, outflow_node
 
 
-    def get_sumo_edge_for_point(self, point):
+    def get_sumo_edge_for_point(self, point, incoming=False, outgoing=False):
         edges = []
         iteration = 0
         max_iterations = 7
@@ -712,8 +735,14 @@ class TripPlanner():
             edge_pos = sumolib.geomhelper.polygonOffsetWithMinimumDistanceToPoint(point, closest_edge.getShape())
         else:
             import pdb; pdb.set_trace()
-        
-        return closest_edge, edge_pos
+
+        node_distances = [(Point(node.getCoord()).distance(Point(point)), node)
+                        for node in self.sim_net.internal_nodes 
+                        if (len(node.getOutgoing()) > 0 and outgoing)
+                        or (len(node.getIncoming()) > 0 and incoming)]
+        closest_node = sorted(node_distances)[0][1]
+
+        return closest_edge, edge_pos, closest_node
 
     def compute_hway_inflow_travel_time(self, trip_nodes, trip_edges, aoi_trip_edges, origin_point, inflow_node):
         prior_inflow_edges = trip_edges[:aoi_trip_edges[0]+1]
